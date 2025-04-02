@@ -1,0 +1,268 @@
+---
+title: "Study_2"
+output: html_document
+date: "2025-04-02"
+---
+
+```{r setup and clean}
+
+#install.packages(c("readxl", "psych", "car"))
+#install.packages("tidyverse")
+
+# Load libraries
+library(tidyverse)
+library(readxl)
+library(psych)
+library(car)
+library(readr)
+
+#Study2 <- read.csv("~/Downloads/Study 2_March 30, 2025_09.37.csv")
+Study2 <- read_csv("~/Downloads/Study 2_March 30, 2025_09.37.csv", 
+    skip = 2)
+
+names(Study2) <-  c("StartDate" , "EndDate",                "Status" ,                "IPAddress"  ,            "Progress", "Duration..in.seconds.",  "Finished"   ,            "RecordedDate"  ,         "ResponseId"  ,           "RecipientLastName"    , 
+ "RecipientFirstName"  ,   "RecipientEmail"  ,       "ExternalReference"   ,   "LocationLatitude" ,      "LocationLongitude"   ,  
+ "DistributionChannel"  ,  "UserLanguage"     ,      "consent"   ,             "ProlificID"   ,          "HS"       ,             
+"RH.S"       ,            "HO"      ,               "RH.O"      ,             "scale.1"      ,          "scale.2"  ,             
+ "scale.3"    ,            "scale.4"    ,            "scale.5"    ,            "explain.1"     ,         "explain.2"  ,            "Basic.Q1"     ,          "Basic.Q1_4_TEXT"   ,     "Basic.Q2"      ,         "Basic.Q3"    ,           "Basic.Q3_8_TEXT"    ,   
+"Cultural.demo",          "Religion.belief.Q1"    , "Religion.belief.Q2" ,    "Religion.belief.Q3"  ,   "Religion.belief.Q4"    ,
+"Self.harm.experience",   "Self.harm.experience.1", "Self.harm.experience.2")
+
+
+colSums(is.na(Study2))
+
+Study2_clean <- Study2 %>%
+  filter(!is.na(`scale.5`))
+
+names(Study2_clean)
+
+Study2_clean <- Study2_clean %>%
+  mutate(
+    scale.1 = as.numeric( scale.1),
+    scale.2 = as.numeric( scale.2),
+    scale.3 = as.numeric( scale.3),
+    scale.4 = as.numeric( scale.4),
+    scale.5 = as.numeric( scale.5),
+    Religion.belief.Q1 = as.numeric(`Religion.belief.Q1`), # 1–4 scale
+    Self.harm.experience = as.numeric(`Self.harm.experience`) # 1 = yes, 2 = no
+  ) %>%
+  filter(
+    !is.na(Religion.belief.Q1),
+    !is.na(Self.harm.experience),
+    Self.harm.experience %in% c(1, 2)  # remove "prefer not to say"
+  )
+
+
+```
+
+
+
+```{r check and run}
+
+# check if religion and self-harm experience predicted moral wrongness rating, if it does, control them. 
+model <- lm(scale.5 ~ Religion.belief.Q1 + Self.harm.experience, data = Study2_clean) 
+
+summary(model)
+# predicting moral wrongness ratings (scale.5) using two predictors
+#Religion.belief.Q1 (self-rated religiosity, 1 = not at all, 4 = very religious); Self.harm.experience (1 = yes, 2 = no)
+
+# For each 1-point increase in religiosity, moral wrongness rating decreases by 0.5972 points. This is statistically significant. P<0.001
+# Self-harm experience does not significantly predict moral judgment.
+
+# When religiosity = 0 and self-harm experience = 0, the predicted moral rating is 6.6157, with p<0.001.
+
+# since religiosity significant predict moral judgment, I control that when run my later regression analysis. 
+# ⬇️
+
+
+
+# regression
+model <- lm(scale.5 ~ scale.1 + scale.2 + scale.3 + scale.4 + Religion.belief.Q1,
+            data = Study2_clean)
+
+vif(model)
+summary(model)
+
+
+# Moral Rating=6.14797−0.17938(Harm-to-Self)+0.03155(Reduced-Harm-to-Self)−0.27017(Harm-to-Others)+0.35543(Reduced-Harm-to-Others)-0.39266 (religion.belief)
+
+# Intercept (6.15): When all predictors are zero (i.e., when harm/reduction ratings are 0 — not applicable in practice because the scale is 1–7), the expected moral rating is 6.15. So the baseline is on the "more morally good" side (since the scale is from 1 = bad to 9 = good).
+
+# scale.1 (causing Harm to Self):-0.18, p=0.006616
+# For each unit increase in perceived causing harm to self, the moral rating decreases by -0.18 points (on average). This is statistically significant (p=0.006616), suggesting that when participants see more harm to the self (Sarah), they judge the act as less morally good.
+
+# scale.2 (Reduced Harm to Self):Estimate: +0.03155, p = 0.671721 
+# Not statistically significant — perceptions of reduced harm to self did not predict moral judgments in this model.
+
+# scale.3 (causing Harm to Others):Estimate: -0.27017, P=0.001428 
+# For each unit increase in perceived harm to others, moral ratings drop by 0.27 points. This iS significant — people disapprove of actions that hurt others.
+
+# scale.4 (Reduced Harm to Others):Estimate: +0.35543, p=0.001
+#Each unit increase in perceived reduction in harm to others leads to a 0.36 increase in moral rating. Again, significant — if participants saw the act as reducing harm to others, they saw it as more morally good.
+
+# Religion (1=not at all, 4=very religion):Estimate: -0.39266, p<0.001
+# Each unit increase in religions leads to a 0.39 decrease in moral rating, regardless of harm perceptions.
+
+# R-squared = 0.4356; about 43% of the variability in moral ratings is explained by my predictors — quite solid in social science.
+
+# F-statistic = 28.44, p < .001; The overall model is statistically significant — at least one of the predictors significantly contributes to predicting moral ratings. 
+# F(5, 184) = 28.44, p < .001: The overall model is highly significant.
+
+
+
+
+```
+
+
+
+```{r manipulation check}
+
+# a new column identifying the condition based on which manipulation column has a response.
+
+names(Study2_clean)
+
+# Create SelfOthers and HarmType columns
+Study2_clean <- Study2_clean %>%
+  mutate(
+    SelfOthers = case_when(
+      !is.na(HS) ~ 1,         # Harm to self
+      !is.na(`RH.S`) ~ 1,     # Reduce harm to self
+      !is.na(HO) ~ 2,         # Harm to others
+      !is.na(`RH.O`) ~ 2,     # Reduce harm to others
+      TRUE ~ NA_real_
+    ),
+    HarmType = case_when(
+      !is.na(HS) ~ 2,         # Causing harm
+      !is.na(HO) ~ 2,         # Causing harm
+      !is.na(`RH.S`) ~ 1,     # Reducing harm
+      !is.na(`RH.O`) ~ 1,     # Reducing harm
+      TRUE ~ NA_real_
+    )
+  )
+
+# double-check..
+table(Study2_clean$SelfOthers, useNA = "ifany")
+table(Study2_clean$HarmType, useNA = "ifany")
+
+# run two-way ANOVA
+
+# make sure my IV is factors. 
+Study2_clean$SelfOthers <- as.factor(Study2_clean$SelfOthers)
+Study2_clean$HarmType <- as.factor(Study2_clean$HarmType)
+
+Study2_clean$Religion.belief.Q1 <- as.numeric(Study2_clean$Religion.belief.Q1) # control it, since it's significantly predict my dv. 
+
+# Run ANCOVA
+ancova_model <- aov(scale.1 ~ SelfOthers * HarmType + Religion.belief.Q1, data = Study2_clean)
+summary(ancova_model)
+
+
+interaction.plot(x.factor = Study2_clean$SelfOthers,
+                 trace.factor = Study2_clean$HarmType,
+                 response = Study2_clean$scale.5,
+                 fun = mean,
+                 type = "b",
+                 col = c("blue", "red"),
+                 pch = c(16, 17),
+                 xlab = "Self vs Others",
+                 ylab = "Moral Rating",
+                 trace.label = "Harm Type")
+
+# the scale answers they gave might have changed depending on which questions participants saw. That was the point of my manipulation.In another words: how about we take look at their perceived harm.
+
+summary(aov(scale.1 ~ SelfOthers * HarmType, data = Study2_clean))
+Study2_clean %>%
+  group_by(SelfOthers, HarmType) %>%
+  summarise(
+    Mean = mean(scale.1, na.rm = TRUE),
+    SD = sd(scale.1, na.rm = TRUE),
+    n = n()
+  )
+
+interaction.plot(x.factor = Study2_clean$SelfOthers,
+                 trace.factor = Study2_clean$HarmType,
+                 response = Study2_clean$scale.1,
+                 fun = mean,
+                 type = "b",
+                 col = c("blue", "red"),
+                 pch = c(16, 17),
+                 xlab = "Self vs Others",
+                 ylab = "cause harm to self",
+                 trace.label = "Harm Type")
+
+summary(aov(scale.2 ~ SelfOthers * HarmType, data = Study2_clean))
+Study2_clean %>%
+  group_by(SelfOthers, HarmType) %>%
+  summarise(
+    Mean = mean(scale.2, na.rm = TRUE),
+    SD = sd(scale.2, na.rm = TRUE),
+    n = n()
+  )
+interaction.plot(x.factor = Study2_clean$SelfOthers,
+                 trace.factor = Study2_clean$HarmType,
+                 response = Study2_clean$scale.2,
+                 fun = mean,
+                 type = "b",
+                 col = c("blue", "red"),
+                 pch = c(16, 17),
+                 xlab = "Self vs Others",
+                 ylab = "scale.2",
+                 trace.label = "Harm Type")
+
+summary(aov(scale.3 ~ SelfOthers * HarmType, data = Study2_clean))
+Study2_clean %>%
+  group_by(SelfOthers, HarmType) %>%
+  summarise(
+    Mean = mean(scale.3, na.rm = TRUE),
+    SD = sd(scale.3, na.rm = TRUE),
+    n = n()
+  )
+interaction.plot(x.factor = Study2_clean$SelfOthers,
+                 trace.factor = Study2_clean$HarmType,
+                 response = Study2_clean$scale.3,
+                 fun = mean,
+                 type = "b",
+                 col = c("blue", "red"),
+                 pch = c(16, 17),
+                 xlab = "Self vs Others",
+                 ylab = "scale.3",
+                 trace.label = "Harm Type")
+
+summary(aov(scale.4 ~ SelfOthers * HarmType, data = Study2_clean))
+Study2_clean %>%
+  group_by(SelfOthers, HarmType) %>%
+  summarise(
+    Mean = mean(scale.4, na.rm = TRUE),
+    SD = sd(scale.4, na.rm = TRUE),
+    n = n()
+  )
+interaction.plot(x.factor = Study2_clean$SelfOthers,
+                 trace.factor = Study2_clean$HarmType,
+                 response = Study2_clean$scale.4,
+                 fun = mean,
+                 type = "b",
+                 col = c("blue", "red"),
+                 pch = c(16, 17),
+                 xlab = "Self vs Others",
+                 ylab = "scale.4",
+                 trace.label = "Harm Type")
+
+
+
+
+#Do people who perceive more harm (to self or others) rate the decision as more morally wrong?
+cor.test(Study2_clean$scale.1, Study2_clean$scale.5)
+cor.test(Study2_clean$scale.3, Study2_clean$scale.5) # these two negatively correlated with moral wrongness rating, which makes sense. 
+
+cor.test(Study2_clean$scale.2, Study2_clean$scale.5)
+cor.test(Study2_clean$scale.4, Study2_clean$scale.5) # these two positively correlated wiht moral wrongness rating, which also makes sense. 
+
+
+# multi-collinearity check
+cor.test(Study2_clean$scale.1, Study2_clean$scale.3)
+cor.test(Study2_clean$scale.2, Study2_clean$scale.4)
+
+
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.

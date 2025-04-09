@@ -15,6 +15,8 @@ library(readxl)
 library(psych)
 library(car)
 library(readr)
+library(dplyr)
+remove.packages("plyr")
 
 #Study2 <- read.csv("~/Downloads/Study 2_March 30, 2025_09.37.csv")
 Study2 <- read_csv("~/Downloads/Study 2_March 30, 2025_09.37.csv", 
@@ -30,13 +32,14 @@ names(Study2) <-  c("StartDate" , "EndDate",                "Status" ,          
 
 
 colSums(is.na(Study2))
+nrow(Study2)
 
 Study2_clean <- Study2 %>%
   filter(!is.na(`scale.5`))
 
-names(Study2_clean)
+nrow(Study2_clean)
 
-Study2_clean <- Study2_clean %>%
+Study2_clean_regression <- Study2_clean %>% 
   mutate(
     scale.1 = as.numeric( scale.1),
     scale.2 = as.numeric( scale.2),
@@ -47,18 +50,22 @@ Study2_clean <- Study2_clean %>%
     Self.harm.experience = as.numeric(`Self.harm.experience`) # 1 = yes, 2 = no
   ) %>%
   filter(
-    !is.na(Religion.belief.Q1),
     !is.na(Self.harm.experience),
     Self.harm.experience %in% c(1, 2)  # remove "prefer not to say"
   )
 
+library(tidyverse)
+
+# Save the cleaned data to your computer
+write_csv(Study2_clean, "Study2_clean.csv")
+
+write_csv(Study2_clean, "/Users/zili/Downloads/Study2_clean.csv")
 
 ```
 
 
 
-```{r check and run}
-
+```{r check and run regression}
 # check if religion and self-harm experience predicted moral wrongness rating, if it does, control them. 
 model <- lm(scale.5 ~ Religion.belief.Q1 + Self.harm.experience, data = Study2_clean) 
 
@@ -75,51 +82,29 @@ summary(model)
 # ⬇️
 
 
-
-# regression
+# regression and controlling for religion. 
 model <- lm(scale.5 ~ scale.1 + scale.2 + scale.3 + scale.4 + Religion.belief.Q1,
             data = Study2_clean)
 
-vif(model)
 summary(model)
+vif(model)
 
-
-# Moral Rating=6.14797−0.17938(Harm-to-Self)+0.03155(Reduced-Harm-to-Self)−0.27017(Harm-to-Others)+0.35543(Reduced-Harm-to-Others)-0.39266 (religion.belief)
-
-# Intercept (6.15): When all predictors are zero (i.e., when harm/reduction ratings are 0 — not applicable in practice because the scale is 1–7), the expected moral rating is 6.15. So the baseline is on the "more morally good" side (since the scale is from 1 = bad to 9 = good).
-
-# scale.1 (causing Harm to Self):-0.18, p=0.006616
-# For each unit increase in perceived causing harm to self, the moral rating decreases by -0.18 points (on average). This is statistically significant (p=0.006616), suggesting that when participants see more harm to the self (Sarah), they judge the act as less morally good.
-
-# scale.2 (Reduced Harm to Self):Estimate: +0.03155, p = 0.671721 
-# Not statistically significant — perceptions of reduced harm to self did not predict moral judgments in this model.
-
-# scale.3 (causing Harm to Others):Estimate: -0.27017, P=0.001428 
-# For each unit increase in perceived harm to others, moral ratings drop by 0.27 points. This iS significant — people disapprove of actions that hurt others.
-
-# scale.4 (Reduced Harm to Others):Estimate: +0.35543, p=0.001
-#Each unit increase in perceived reduction in harm to others leads to a 0.36 increase in moral rating. Again, significant — if participants saw the act as reducing harm to others, they saw it as more morally good.
-
-# Religion (1=not at all, 4=very religion):Estimate: -0.39266, p<0.001
-# Each unit increase in religions leads to a 0.39 decrease in moral rating, regardless of harm perceptions.
-
-# R-squared = 0.4356; about 43% of the variability in moral ratings is explained by my predictors — quite solid in social science.
-
-# F-statistic = 28.44, p < .001; The overall model is statistically significant — at least one of the predictors significantly contributes to predicting moral ratings. 
-# F(5, 184) = 28.44, p < .001: The overall model is highly significant.
-
-
-
+# install.packages("sjPlot")
+library(sjPlot)
+tab_model(model)
 
 ```
 
-
-
-```{r manipulation check}
+```{r two way ANOVA}
 
 # a new column identifying the condition based on which manipulation column has a response.
 
 names(Study2_clean)
+
+# install.packages("writexl")  
+# library(writexl)
+#write_xlsx(Study2_clean, path = "/Users/zili/Downloads/Study2_clean.xlsx")
+
 
 # Create SelfOthers and HarmType columns
 Study2_clean <- Study2_clean %>%
@@ -144,6 +129,19 @@ Study2_clean <- Study2_clean %>%
 table(Study2_clean$SelfOthers, useNA = "ifany")
 table(Study2_clean$HarmType, useNA = "ifany")
 
+# reverse code.
+Study2_clean <- Study2_clean %>%
+  mutate(
+    scale.2.rev = 8 - scale.2,  # reverse code scale 2
+    scale.4.rev = 8 - scale.4   # reverse code scale 4
+  )
+
+Study2_clean <- Study2_clean %>%
+  mutate(
+    scale.5.rev = 10 - scale.5,  # reverse code scale 5
+  )
+
+
 # run two-way ANOVA
 
 # make sure my IV is factors. 
@@ -153,7 +151,7 @@ Study2_clean$HarmType <- as.factor(Study2_clean$HarmType)
 Study2_clean$Religion.belief.Q1 <- as.numeric(Study2_clean$Religion.belief.Q1) # control it, since it's significantly predict my dv. 
 
 # Run ANCOVA
-ancova_model <- aov(scale.1 ~ SelfOthers * HarmType + Religion.belief.Q1, data = Study2_clean)
+ancova_model <- aov(scale.5.rev ~ SelfOthers * HarmType + Religion.belief.Q1, data = Study2_clean)
 summary(ancova_model)
 
 
@@ -168,8 +166,95 @@ interaction.plot(x.factor = Study2_clean$SelfOthers,
                  ylab = "Moral Rating",
                  trace.label = "Harm Type")
 
-# the scale answers they gave might have changed depending on which questions participants saw. That was the point of my manipulation.In another words: how about we take look at their perceived harm.
+library(ggplot2)
 
+Study2_clean$SelfOthers <- as.factor(Study2_clean$SelfOthers)
+Study2_clean$HarmType <- as.factor(Study2_clean$HarmType)
+
+
+# plot?
+# install.packages("ggpubr")
+library(ggpubr)
+
+Study2_clean$SelfOthers <- factor(Study2_clean$SelfOthers,
+                                  levels = c(1, 2),
+                                  labels = c("Self", "Others"))
+
+Study2_clean$HarmType <- factor(Study2_clean$HarmType,
+                                levels = c(1, 2),
+                                labels = c("Reducing Harm", "Causing Harm"))
+
+summary_data <- Study2_clean %>%
+  group_by(SelfOthers, HarmType) %>%
+  summarise(
+    mean = mean(scale.5, na.rm = TRUE),
+    sd = sd(scale.5, na.rm = TRUE),
+    n = sum(!is.na(scale.5)),
+    se = sd / sqrt(n),
+    .groups = "drop"
+  )
+ggbarplot(
+  data = Study2_clean,
+  x = "SelfOthers",         
+  y = "scale.5", # DV
+  fill = "HarmType", # group color
+  add = "mean_se",   # add error bars (mean ± SE)
+  position = position_dodge(),
+  palette = "jco"          
+) +
+  labs(
+    x = "Target of Harm",
+    y = "Moral Wrongness Rating"
+  ) +
+  theme_minimal()
+
+# plot sec try
+# for harm type
+harmtype_summary <- Study2_clean %>%
+  group_by(HarmType) %>%
+  summarise(
+    mean = mean(scale.5, na.rm = TRUE),
+    sd = sd(scale.5, na.rm = TRUE),
+    n = sum(!is.na(scale.5)),
+    se = sd / sqrt(n)
+  )
+ggplot(harmtype_summary, aes(x = HarmType, y = mean, fill = HarmType)) +
+  geom_bar(stat = "identity", width = 0.6, color = "black") +
+  geom_errorbar(aes(ymin = mean - se, ymax = mean + se), width = 0.2) +
+  labs(
+    x = "Harm Type",
+    y = "Moral Wrongness Rating",
+    title = "Main Effect of Harm Type on Moral Judgments"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(legend.position = "none")
+
+# for target
+selfother_summary <- Study2_clean %>%
+  group_by(SelfOthers) %>%
+  summarise(
+    mean = mean(scale.5, na.rm = TRUE),
+    sd = sd(scale.5, na.rm = TRUE),
+    n = sum(!is.na(scale.5)),
+    se = sd / sqrt(n)
+  )
+ggplot(selfother_summary, aes(x = SelfOthers, y = mean, fill = SelfOthers)) +
+  geom_bar(stat = "identity", width = 0.6, color = "black") +
+  geom_errorbar(aes(ymin = mean - se, ymax = mean + se), width = 0.2) +
+  labs(
+    x = "Self Others",
+    y = "Moral Wrongness Rating",
+    title = "Main Effect of target on Moral Judgments"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(legend.position = "none")
+
+
+```
+
+```{r manipulation check}
+
+# the scale answers they gave might have changed depending on which questions participants saw. That was the point of my manipulation.In another words: how about we take look at their perceived harm.
 summary(aov(scale.1 ~ SelfOthers * HarmType, data = Study2_clean))
 Study2_clean %>%
   group_by(SelfOthers, HarmType) %>%
@@ -248,6 +333,63 @@ interaction.plot(x.factor = Study2_clean$SelfOthers,
                  trace.label = "Harm Type")
 
 
+# below is my new manipulation check. runing a lot one way anova. 
+
+Study2_clean$SelfOthers <- factor(Study2_clean$SelfOthers,
+                                  levels = c(1, 2),
+                                  labels = c("Self", "Others"))
+Study2_clean$HarmType <- factor(Study2_clean$HarmType,
+                                levels = c(1, 2),
+                                labels = c("Reduce", "Cause"))
+
+# Create a new variable for combined condition
+Study2_clean$Condition <- interaction(Study2_clean$SelfOthers, Study2_clean$HarmType, sep = "_")
+
+# Run four one-way ANOVAs
+names(Study2_clean)
+
+anova1 <- aov(scale.1 ~ Condition, data = Study2_clean)
+Study2_clean %>%
+  group_by(Condition) %>%
+ dplyr:: summarise(
+    Mean = mean(scale.1, na.rm = TRUE),
+    SD = sd(scale.1, na.rm = TRUE),
+    n =n()
+    )
+
+
+anova2 <- aov(scale.2 ~ Condition, data = Study2_clean)
+Study2_clean %>%
+  group_by(Condition) %>%
+  dplyr:: summarise(
+    Mean = mean(scale.2, na.rm = TRUE),
+    SD = sd(scale.2, na.rm = TRUE),
+    n = n()
+  )
+
+anova3 <- aov(scale.3 ~ Condition, data = Study2_clean)
+Study2_clean %>%
+  group_by(Condition) %>%
+   dplyr::summarise(
+    Mean = mean(scale.3, na.rm = TRUE),
+    SD = sd(scale.3, na.rm = TRUE),
+    n = n()
+  )
+
+anova4 <- aov(scale.4 ~ Condition, data = Study2_clean)
+Study2_clean %>%
+  group_by(Condition) %>%
+   dplyr::summarise(
+    Mean = mean(scale.4, na.rm = TRUE),
+    SD = sd(scale.4, na.rm = TRUE),
+    n = n()
+  )
+
+summary(anova1)
+summary(anova2)
+summary(anova3)
+summary(anova4)
+
 
 
 #Do people who perceive more harm (to self or others) rate the decision as more morally wrong?
@@ -265,4 +407,31 @@ cor.test(Study2_clean$scale.2, Study2_clean$scale.4)
 
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+```{r plot mean difference}
+
+library(ggplot2)
+library(dplyr)
+summary_df <- Study2_clean %>%
+  group_by(Condition) %>%
+  summarise(
+    Mean = mean(scale.1, na.rm = TRUE),
+    SD = sd(scale.1, na.rm = TRUE),
+    N = n(),
+    SE = SD / sqrt(N)
+  )
+
+# Bar plot with error bars
+ggplot(summary_df, aes(x = Condition, y = Mean, fill = Condition)) +
+  geom_bar(stat = "identity", color = "black", width = 0.7) +
+  geom_errorbar(aes(ymin = Mean - SE, ymax = Mean + SE), width = 0.2) +
+  labs(
+    x = "Condition",
+    y = "Mean Rating",
+    title = "Mean Perceived Harm by Condition"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(legend.position = "none")
+
+```
+

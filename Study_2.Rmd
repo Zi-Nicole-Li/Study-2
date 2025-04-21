@@ -67,27 +67,40 @@ write_csv(Study2_clean, "/Users/zili/Downloads/Study2_clean.csv")
 
 ```{r check and run regression}
 # check if religion and self-harm experience predicted moral wrongness rating, if it does, control them. 
-model <- lm(scale.5 ~ Religion.belief.Q1 + Self.harm.experience, data = Study2_clean) 
+model <- lm(scale.5 ~ Religion.belief.Q1 + Self.harm.experience, data = Study2_clean_regression) 
 
+# install.packages("lm.beta")
+library(lm.beta)
+lm.beta(model)
 summary(model)
 # predicting moral wrongness ratings (scale.5) using two predictors
 #Religion.belief.Q1 (self-rated religiosity, 1 = not at all, 4 = very religious); Self.harm.experience (1 = yes, 2 = no)
 
-# For each 1-point increase in religiosity, moral wrongness rating decreases by 0.5972 points. This is statistically significant. P<0.001
-# Self-harm experience does not significantly predict moral judgment.
 
-# When religiosity = 0 and self-harm experience = 0, the predicted moral rating is 6.6157, with p<0.001.
 
 # since religiosity significant predict moral judgment, I control that when run my later regression analysis. 
 # ⬇️
 
 
 # regression and controlling for religion. 
-model <- lm(scale.5 ~ scale.1 + scale.2 + scale.3 + scale.4 + Religion.belief.Q1,
+model <- lm(scale.5 ~ scale.1 + scale.2.rev + scale.3 + scale.4.rev + Religion.belief.Q1,
             data = Study2_clean)
 
 summary(model)
 vif(model)
+
+# using the total scale for self and harm; to predict scale.5 while control the religion belief. 
+Study2_clean <- Study2_clean %>%
+  mutate(Total_S = (scale.1 + scale.2.rev) / 2)
+
+Study2_clean <- Study2_clean %>%
+  mutate(Total_O = (scale.3 + scale.4.rev) / 2)
+
+model <- lm(scale.5 ~ Total_S + Total_O + Religion.belief.Q1,
+            data = Study2_clean)
+lm.beta(model)
+summary(model)
+
 
 # install.packages("sjPlot")
 library(sjPlot)
@@ -103,7 +116,7 @@ names(Study2_clean)
 
 # install.packages("writexl")  
 # library(writexl)
-#write_xlsx(Study2_clean, path = "/Users/zili/Downloads/Study2_clean.xlsx")
+# write_xlsx(Study2_clean, path = "/Users/zili/Downloads/Study2_clean.xlsx")
 
 
 # Create SelfOthers and HarmType columns
@@ -125,9 +138,46 @@ Study2_clean <- Study2_clean %>%
     )
   )
 
-# double-check..
-table(Study2_clean$SelfOthers, useNA = "ifany")
-table(Study2_clean$HarmType, useNA = "ifany")
+# create two columns, self & others. 
+Study2_clean <- Study2_clean %>%
+  mutate(Self = case_when(
+    !is.na(`RH.S`) ~ 1,     # Reducing harm to self
+    !is.na(HS) ~ 2,         # Causing harm to self
+    TRUE ~ NA_real_
+  ))
+
+# Add Other column: 1 = Reduce Harm to Others, 2 = Cause Harm to Others
+Study2_clean <- Study2_clean %>%
+  mutate(Other = case_when(
+    !is.na(`RH.O`) ~ 1,     # Reducing harm to others
+    !is.na(HO) ~ 2,         # Causing harm to others
+    TRUE ~ NA_real_
+  ))
+
+# NEW! manipulation check
+
+t.test(Total_S ~ Self, data = Study2_clean)
+
+t.test(Total_O ~ Other, data = Study2_clean)
+
+
+# get the SD
+Study2_clean %>%
+  group_by(Self) %>%
+  summarise(
+    Mean = mean(Total_S, na.rm = TRUE),
+    SD = sd(Total_S, na.rm = TRUE),
+    N = n()
+  )
+
+# the SD for Others
+Study2_clean %>%
+  group_by(Other) %>%
+  summarise(
+    Mean = mean(Total_O, na.rm = TRUE),
+    SD = sd(Total_O, na.rm = TRUE),
+    N = n()
+  )
 
 # reverse code.
 Study2_clean <- Study2_clean %>%
@@ -142,6 +192,12 @@ Study2_clean <- Study2_clean %>%
   )
 
 
+
+
+```
+
+
+```{r}
 # run two-way ANOVA
 
 # make sure my IV is factors. 
@@ -150,10 +206,20 @@ Study2_clean$HarmType <- as.factor(Study2_clean$HarmType)
 
 Study2_clean$Religion.belief.Q1 <- as.numeric(Study2_clean$Religion.belief.Q1) # control it, since it's significantly predict my dv. 
 
-# Run ANCOVA
-ancova_model <- aov(scale.5.rev ~ SelfOthers * HarmType + Religion.belief.Q1, data = Study2_clean)
-summary(ancova_model)
+# Set contrasts for categorical variables (this is critical!)
+# Type III SS requires sum contrasts, not the default treatment contrasts.
 
+contrasts(Study2_clean$SelfOthers) <- contr.sum(2)
+contrasts(Study2_clean$HarmType) <- contr.sum(2)
+
+# Run ANCOVA
+# ancova_model <- aov(scale.5 ~ SelfOthers * HarmType + Religion.belief.Q1, data = Study2_clean)
+# above one use type=1; not the ideal method for my situation, so change to type=3
+
+model_lm <- lm(scale.5 ~ SelfOthers * HarmType + Religion.belief.Q1, data = Study2_clean)
+Anova(model_lm, type = 3)
+
+summary(model_lm )
 
 interaction.plot(x.factor = Study2_clean$SelfOthers,
                  trace.factor = Study2_clean$HarmType,
@@ -201,12 +267,16 @@ ggbarplot(
   add = "mean_se",   # add error bars (mean ± SE)
   position = position_dodge(),
   palette = "jco"          
-) +
+) + 
   labs(
     x = "Target of Harm",
     y = "Moral Wrongness Rating"
   ) +
-  theme_minimal()
+  theme_minimal(base_size = 14) +
+  theme(legend.position = "right") +
+  coord_cartesian(ylim=c(1,9)) +
+  scale_y_continuous(breaks = seq(1,9,1))
+
 
 # plot sec try
 # for harm type
@@ -227,7 +297,10 @@ ggplot(harmtype_summary, aes(x = HarmType, y = mean, fill = HarmType)) +
     title = "Main Effect of Harm Type on Moral Judgments"
   ) +
   theme_minimal(base_size = 14) +
-  theme(legend.position = "none")
+  theme(legend.position = "none")+
+  coord_cartesian(ylim=c(1,9)) +
+  scale_y_continuous(breaks = seq(1,9,1))
+
 
 # for target
 selfother_summary <- Study2_clean %>%
@@ -240,17 +313,18 @@ selfother_summary <- Study2_clean %>%
   )
 ggplot(selfother_summary, aes(x = SelfOthers, y = mean, fill = SelfOthers)) +
   geom_bar(stat = "identity", width = 0.6, color = "black") +
-  geom_errorbar(aes(ymin = mean - se, ymax = mean + se), width = 0.2) +
+  geom_errorbar(aes(ymin = mean - se, ymax = mean + se), width = 0.2) + 
   labs(
     x = "Self Others",
     y = "Moral Wrongness Rating",
     title = "Main Effect of target on Moral Judgments"
-  ) +
-  theme_minimal(base_size = 14) +
-  theme(legend.position = "none")
-
+  ) 
+  # theme_minimal(base_size = 14) +
+ # theme(legend.position = "none")
 
 ```
+
+
 
 ```{r manipulation check}
 
